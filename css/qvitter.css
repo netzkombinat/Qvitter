@@ -1366,6 +1366,7 @@ body.rtl #footer-spinner-container {
 
 #history-container {
 	margin-bottom:0;
+	display: none !important; /* workaround */
 	}
 
 #history-container.menu-container a .chev-right {
@@ -1428,6 +1429,7 @@ body.rtl #history-container.menu-container a .chev-right {
     text-align: right;
     text-shadow: none;
 	cursor:pointer;
+	display: none !important; /* workaround */
 	}
 #clear-history:hover {
 	color: rgba(255, 255, 255, 0.8);

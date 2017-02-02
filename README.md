@@ -1,3 +1,9 @@
+Note
+-----
+
+This is a netzkombinat.su fork and is not the stock mirror of Qvitter.
+
+
 Qvitter
 ==========================================
 

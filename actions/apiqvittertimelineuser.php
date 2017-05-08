@@ -1,8 +1,7 @@
 <?php
-
   /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
    ·                                                                            ·
-   ·  API for getting all muted profiles for a profile                        ·
+   ·  Show timelines for both local and remote users                            ·
    ·                                                                            ·
    - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   ·                                                                             ·
@@ -40,10 +39,11 @@
 
 if (!defined('GNUSOCIAL')) { exit(1); }
 
-
-class ApiQvitterMutesAction extends ApiPrivateAuthAction
+class ApiQvitterTimelineUserAction extends ApiBareAuthAction
 {
-    var $profiles = null;
+    var $notices = null;
+
+    var $next_id = null;
 
     /**
      * Take arguments for running
@@ -56,9 +56,18 @@ class ApiQvitterMutesAction extends ApiPrivateAuthAction
     {
         parent::prepare($args);
 
-        $this->format = 'json';
+        $this->target = $this->getTargetProfile($this->arg('id'));
 
-        $this->count    =  (int)$this->arg('count', 100);
+        if (!($this->target instanceof Profile)) {
+            // TRANS: Client error displayed requesting most recent notices for a non-existing user.
+            $this->clientError(_('No such user.'), 404);
+        }
+
+        // if (!$this->target->isLocal()) {
+        //     $this->serverError(_('Remote user timelines are not available here yet.'), 501);
+        // }
+
+        $this->notices = $this->getNotices();
 
         return true;
     }
@@ -66,7 +75,7 @@ class ApiQvitterMutesAction extends ApiPrivateAuthAction
     /**
      * Handle the request
      *
-     * Show the profiles
+     * Just show the notices
      *
      * @return void
      */
@@ -74,45 +83,54 @@ class ApiQvitterMutesAction extends ApiPrivateAuthAction
     {
         parent::handle();
 
-        $this->target = $this->scoped;
-
-		if(!$this->target instanceof Profile) {
-			$this->clientError(_('You have to be logged in to view your mutes.'), 403);
-			}
-
-        $this->profiles = $this->getProfiles();
-
-        $this->initDocument('json');
-        print json_encode($this->showProfiles());
-        $this->endDocument('json');
+        $this->showTimeline();
     }
 
     /**
-     * Get the user's muted profiles
+     * Show the timeline of notices
      *
-     * @return array Profiles
+     * @return void
      */
-    protected function getProfiles()
+    function showTimeline()
     {
-        $offset = ($this->page - 1) * $this->count;
-        $limit =  $this->count;
-
-		$mutes = QvitterMuted::getMutedProfiles($this->target->id, $offset, $limit);
-
-        if($mutes) {
-            return $mutes;
-        } else {
-            return false;
-        }
+        $this->showJsonTimeline($this->notices);
     }
 
     /**
-     * Is this action read only?
+     * Get notices
+     *
+     * @return array notices
+     */
+    function getNotices()
+    {
+        $notices = array();
+
+        $notice = $this->target->getNotices(($this->page-1) * $this->count,
+                                          $this->count + 1,
+                                          $this->since_id,
+                                          $this->max_id,
+                                          $this->scoped);
+
+        while ($notice->fetch()) {
+            if (count($notices) < $this->count) {
+                $notices[] = clone($notice);
+            } else {
+                $this->next_id = $notice->id;
+                break;
+            }
+        }
+
+        return $notices;
+    }
+
+    /**
+     * We expose AtomPub here, so non-GET/HEAD reqs must be read/write.
      *
      * @param array $args other arguments
      *
      * @return boolean true
      */
+
     function isReadOnly($args)
     {
         return true;
@@ -121,62 +139,43 @@ class ApiQvitterMutesAction extends ApiPrivateAuthAction
     /**
      * When was this feed last modified?
      *
-     * @return string datestamp of the latest profile in the stream
+     * @return string datestamp of the latest notice in the stream
      */
     function lastModified()
     {
-        if (!empty($this->profiles) && (count($this->profiles) > 0)) {
-            return strtotime($this->profiles[0]->modified);
+        if (!empty($this->notices) && (count($this->notices) > 0)) {
+            return strtotime($this->notices[0]->created);
         }
 
         return null;
     }
 
     /**
-     * An entity tag for this action
+     * An entity tag for this stream
      *
      * Returns an Etag based on the action name, language, user ID, and
-     * timestamps of the first and last profiles in the subscriptions list
-     * There's also an indicator to show whether this action is being called
-     * as /api/statuses/(friends|followers) or /api/(friends|followers)/ids
+     * timestamps of the first and last notice in the timeline
      *
      * @return string etag
      */
     function etag()
     {
-        if (!empty($this->profiles) && (count($this->profiles) > 0)) {
-
-            $last = count($this->profiles) - 1;
+        if (!empty($this->notices) && (count($this->notices) > 0)) {
+            $last = count($this->notices) - 1;
 
             return '"' . implode(
-                ':',
-                array($this->arg('action'),
-                      common_user_cache_hash($this->auth_user),
-                      common_language(),
-                      $this->target->id,
-                      'Profiles',
-                      strtotime($this->profiles[0]->modified),
-                      strtotime($this->profiles[$last]->modified))
-            )
-            . '"';
+                                 ':',
+                                 array($this->arg('action'),
+                                       common_user_cache_hash($this->scoped),
+                                       common_language(),
+                                       $this->target->getID(),
+                                       strtotime($this->notices[0]->created),
+                                       strtotime($this->notices[$last]->created))
+                                 )
+              . '"';
         }
 
         return null;
     }
 
-    /**
-     * Show the profiles as Twitter-style useres and statuses
-     *
-     * @return void
-     */
-    function showProfiles()
-    {
-		$user_arrays = array();
-        if($this->profiles !== false) {
-    		foreach ($this->profiles as $profile) {
-    			$user_arrays[] = $this->twitterUserArray($profile, false );
-    		}
-        }
-		return $user_arrays;
-    }
 }

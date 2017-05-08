@@ -197,5 +197,9 @@
 	"mutedStreamDescription":"あなたのタイムラインから、選択されたユーザーを隠しました。あなたがお知らせページの歯車のメニューにある&quot;ミュートしたユーザーからのお知らせを隠す&quot;を選択しなかったユーザー以外からは、まだお知らせを受け取ります。",
 	"profileAndSettings":"プロフィールと設定",
 	"profileSettings":"プロフィール設定",
-	"thisIsABookmark":"This is a bookmark created in the Classic interface"
+	"thisIsABookmark":"これはクラシックインターフェースで作られたブックマークです",
+	"thisIsARemoteUser":"<strong>注意!</strong> これはリモートユーザーです。このページはリモートユーザーのプロフィールのキャッシュされている複製であり、このGNU socialインスタンスに保存されたデータのみを含みます。<a href=\"{remote-profile-url}\" donthijack>このユーザーが所属するサーバーのプロフィール</a>で完全なプロフィールを閲覧できます。",
+	"findSomeone":"誰かを検索",
+	"findSomeoneTooltip":"ユーザー名またはプロフィールURLを入力 (例: @localuser または https://remote.instance/nickname)",
+	"tooltipAttachFile":"Attach a file"
 }

@@ -50,9 +50,14 @@ checkLocalStorage();
 window.loggedIn = iterateRecursiveReplaceHtmlSpecialChars(window.loggedIn);
 
 // hack to supress basic auth popup, e.g. if the user has to tabs open and
-// log out in one of them. but microsoft browsers doesn't support this
-if(typeof bowser.msie == 'undefined' && typeof bowser.msedge == 'undefined') {
-	window.apiRoot = window.apiRoot.replace('://','://x:x@');
+// log out in one of them. but microsoft browsers and chrome 59+ doesn't support this
+if(typeof bowser != 'undefined') {
+	var bowserIntVersion = parseInt(bowser.version,10);
+	if(typeof bowser.msie == 'undefined'
+	&& typeof bowser.msedge == 'undefined'
+	&& !(typeof bowser.chrome != 'undefined' && bowser.chrome === true && bowserIntVersion <= 59)) {
+		window.apiRoot = window.apiRoot.replace('://','://x:x@');
+		}
 	}
 
 
@@ -280,7 +285,6 @@ $('body').on('mouseover',function (e) {
 			possibleNickname = $(e.target).text();
 			}
 		}
-
 	// see if we have it in cache, otherwise query server
 	getUserArrayData(hrefAttr, possibleNickname, timeNow, targetElement, function(userArray, timeOut){
 
@@ -323,9 +327,8 @@ $('body').on('mouseover',function (e) {
 					// we query it for the lastest data
 					if((typeof window.userArrayLastRetrieved[hrefAttr] == 'undefined') || (timeNow - window.userArrayLastRetrieved[hrefAttr]) > 60000) {
 						window.userArrayLastRetrieved[hrefAttr] = timeNow;
-
 						// local users
-						if(userArray.local !== null && userArray.local.is_local === true) {
+						if(userArray.local && userArray.local.is_local === true) {
 							getFromAPI('users/show.json?id=' + userArray.local.screen_name, function(data){
 								if(data) {
 									var newProfileCard = buildProfileCard(data);
@@ -336,7 +339,7 @@ $('body').on('mouseover',function (e) {
 							}
 
 						// external users
-						else if(userArray.local === null || userArray.local.is_local === false) {
+						else if(!userArray.local || userArray.local.is_local === false) {
 							getFromAPI('qvitter/external_user_show.json?profileurl=' + encodeURIComponent(hrefAttr),function(data){
 								if(data && data.external !== null) {
 									var newProfileCard = buildExternalProfileCard(data);
@@ -383,7 +386,7 @@ function getUserArrayData(maybeProfileUrl,maybeNickname,timeNow,targetElement,ca
 						if((typeof window.userArrayLastRetrieved[maybeProfileUrl] == 'undefined') || (timeNow - window.userArrayLastRetrieved[maybeProfileUrl]) > 60000) {
 							window.userArrayLastRetrieved[maybeProfileUrl] = timeNow;
 							getFromAPI('qvitter/external_user_show.json?profileurl=' + encodeURIComponent(maybeProfileUrl),function(data){
-								if(data && data.external !== null) {
+								if(data) {
 
 									// we want hover cards to appear _at least_ 600ms after hover (see below)
 									var timeAfterServerQuery = new Date().getTime();
@@ -480,6 +483,105 @@ $('body').on('mouseleave','.hover-card', function(e) {
 	$(this).removeClass('dont-remove-card');
 	});
 
+
+/* ·
+   ·
+   ·   find someone tool
+   ·
+   · · · · · · · · · · · · · */
+
+$('#find-someone input').keyup(function(e){
+	var thisFindSomeoneInput = $(this);
+	if(e.keyCode==13 && !thisFindSomeoneInput.hasClass('submitted')) {
+		thisFindSomeoneInput.addClass('submitted');
+		thisFindSomeoneInput.attr('disabled','disabled');
+		var val = $.trim(thisFindSomeoneInput.val());
+
+		// if this is a simple text input, we assume it is a local user
+		if(val.length>1 && /^(@)?[a-zA-Z0-9]+$/.test(val)) {
+			if(val.indexOf('@') == 0) {
+				val = val.replace('@','');
+				}
+			setNewCurrentStream(pathToStreamRouter(val),true,false,function(){
+				foundSomeone(thisFindSomeoneInput);
+				});
+			}
+		// urls might be a remote user
+		else if(val.length==0 || /^(ftp|http|https):\/\/[^ "]+$/.test(val)) {
+			getFromAPI('qvitter/external_user_show.json?profileurl=' + encodeURIComponent(val),function(data){
+				if(data && data.local !== null) {
+					setNewCurrentStream(pathToStreamRouter('user/' + data.local.id),true,false,function(){
+						foundSomeone(thisFindSomeoneInput);
+						});
+					}
+				else {
+					cantFindSomeone(thisFindSomeoneInput);
+					}
+				});
+			}
+		// @user@instance.domain style syntax
+		else if(val.length==0 || /^(@)?[a-zA-Z0-9]+@[a-zA-Z0-9\-]+(\.)(.*)+$/.test(val)) {
+
+			if(val.indexOf('@') == 0) {
+				val = val.substring(1)
+			}
+
+			var username = val.substring(0, val.indexOf('@'));
+			var domain = val.substring(val.indexOf('@')+1);
+			var urlToTry = 'https://' + domain + '/' + username;
+			var secondUrlToTry = 'http://' + domain + '/' + username;
+			var thirdUrlToTry = 'https://' + domain + '/@' + username; // mastodon
+
+			getFromAPI('qvitter/external_user_show.json?profileurl=' + encodeURIComponent(urlToTry),function(data){
+				if(data && data.local !== null) {
+					setNewCurrentStream(pathToStreamRouter('user/' + data.local.id),true,false,function(){
+						foundSomeone(thisFindSomeoneInput);
+						});
+					}
+				else {
+					getFromAPI('qvitter/external_user_show.json?profileurl=' + encodeURIComponent(secondUrlToTry),function(data){
+						if(data && data.local !== null) {
+							setNewCurrentStream(pathToStreamRouter('user/' + data.local.id),true,false,function(){
+								foundSomeone(thisFindSomeoneInput);
+								});
+							}
+						else {
+							getFromAPI('qvitter/external_user_show.json?profileurl=' + encodeURIComponent(thirdUrlToTry),function(data){
+								if(data && data.local !== null) {
+									setNewCurrentStream(pathToStreamRouter('user/' + data.local.id),true,false,function(){
+										foundSomeone(thisFindSomeoneInput);
+										});
+									}
+								else {
+									cantFindSomeone(thisFindSomeoneInput);
+									}
+								});
+							}
+						});
+					}
+				});
+			}
+		else {
+			cantFindSomeone(thisFindSomeoneInput);
+			}
+		}
+	});
+
+function cantFindSomeone(thisFindSomeoneInput) {
+	thisFindSomeoneInput.css('background-color','pink');
+	thisFindSomeoneInput.effect('shake',{distance:5,times:3,duration:700},function(){
+		thisFindSomeoneInput.animate({backgroundColor:'#fff'},1000);
+		thisFindSomeoneInput.removeAttr('disabled');
+		thisFindSomeoneInput.removeClass('submitted');
+		thisFindSomeoneInput.focus();
+		});
+	}
+function foundSomeone(thisFindSomeoneInput) {
+	thisFindSomeoneInput.removeAttr('disabled');
+	thisFindSomeoneInput.val('');
+	thisFindSomeoneInput.blur();
+	thisFindSomeoneInput.removeClass('submitted');
+	}
 
 
 
@@ -959,12 +1061,15 @@ function proceedToSetLanguageAndLogin(data){
 	$('#accessibility-toggle-link').html(window.sL.accessibilityToggleLink);
 	$('#settingslink .nav-session').attr('data-tooltip',window.sL.profileAndSettings);
 	$('#top-compose').attr('data-tooltip',window.sL.compose);
-	$('button.upload-image').attr('data-tooltip',window.sL.tooltipAttachImage);
+	$('button.upload-image').attr('data-tooltip',window.sL.tooltipAttachFile);
 	$('button.shorten').attr('data-tooltip',window.sL.tooltipShortenUrls);
 	$('.reload-stream').attr('data-tooltip',window.sL.tooltipReloadStream);
 	$('#clear-history').html(window.sL.clearHistory);
 	$('#user-screen-name, #user-avatar, #user-name').attr('data-tooltip', window.sL.viewMyProfilePage);
 	$('#top-menu-profile-link-view-profile').html(window.sL.viewMyProfilePage);
+	$('#find-someone input').attr('placeholder',window.sL.findSomeone);
+	$('#find-someone input').attr('data-tooltip',window.sL.findSomeoneTooltip);
+
 
 	// show site body now
 	$('#user-container').css('display','block');
@@ -988,7 +1093,7 @@ function proceedToSetLanguageAndLogin(data){
 function proceedLoggedOut() {
 	display_spinner();
 	setNewCurrentStream(getStreamFromUrl(),true,false,function(){
-		$('input#nickname').focus();
+		// $('input#nickname').focus(); --> maybe not a good idea on mobile?
 		$('#page-container').css('opacity','1');
 		});
 	}
@@ -1836,42 +1941,34 @@ $('body').on('click','a', function(e) {
 		}
 	// hijack link if we find a matching link that qvitter can handle
 	else {
-		var streamObject = URLtoStreamRouter($(this).attr('href'));
+
+		var hrefAttr = $(this).attr('href');
+
+		// this might be a remote profile that we want to reroute to a local instance/user/id url, let's check our cache
+		if(typeof window.convertStatusnetProfileUrlToUserArrayCacheKey[hrefAttr] != 'undefined') {
+			if(typeof window.userArrayCache[window.convertStatusnetProfileUrlToUserArrayCacheKey[hrefAttr]] != 'undefined') {
+				var cachedUserArray = window.userArrayCache[window.convertStatusnetProfileUrlToUserArrayCacheKey[hrefAttr]];
+				if(cachedUserArray.local.is_local === false) {
+					hrefAttr = window.siteInstanceURL + 'user/' + cachedUserArray.local.id;
+					}
+				}
+			}
+		else if(typeof window.convertUriToUserArrayCacheKey[hrefAttr] != 'undefined') {
+			if(typeof window.userArrayCache[window.convertUriToUserArrayCacheKey[hrefAttr]] != 'undefined') {
+				var cachedUserArray = window.userArrayCache[window.convertUriToUserArrayCacheKey[hrefAttr]];
+				if(cachedUserArray.local.is_local === false) {
+					hrefAttr = window.siteInstanceURL + 'user/' + cachedUserArray.local.id;
+					}
+				}
+			}
+
+		var streamObject = URLtoStreamRouter(hrefAttr);
 		if(streamObject && streamObject.stream) {
 			e.preventDefault();
 
-			// if this is a user/{id} type link we want to find the nickname before setting a new stream
-			// the main reason is that we want to update the browsers location bar and the .stream-selecton
-			// links as fast as we can. we rather not wait for the server response
-			if(streamObject.name == 'profile by id') {
-
-				// pathToStreamRouter() might have found a cached nickname
-				if(streamObject.nickname) {
-					setNewCurrentStream(pathToStreamRouter(streamObject.nickname),true,streamObject.id);
-					}
-				// otherwise we might follow the user and thereby already know its nickname
-				else if (typeof window.following != 'undefined' && typeof window.following[streamObject.id] != 'undefined') {
-					setNewCurrentStream(pathToStreamRouter(window.following[streamObject.id].username),true,streamObject.id);
-					}
-				// if the text() of the clicked element looks like a user nickname, use that (but send id to setNewCurrentStream() in case this is bad data)
-				else if(/^@[a-zA-Z0-9]+$/.test($(e.target).text()) || /^[a-zA-Z0-9]+$/.test($(e.target).text())) {
-					var nickname = $(e.target).text();
-					if(nickname.indexOf('@') == 0) {
-						nickname = nickname.substring(1); // remove any starting @
-						}
-					setNewCurrentStream(pathToStreamRouter(nickname),true,streamObject.id);
-					}
-				// if we can't figure out or guess a nickname, query the server for it
-				else {
-					getNicknameByUserIdFromAPI(streamObject.id,function(nickname) {
-						if(nickname) {
-							setNewCurrentStream(pathToStreamRouter(nickname),true,false);
-							}
-						else {
-							alert('user not found');
-							}
-						});
-					}
+			// if this is a user/{id} type link but we know the nickname already
+			if(streamObject.name == 'profile by id' && streamObject.nickname !== false) {
+				setNewCurrentStream(pathToStreamRouter(streamObject.nickname),true,streamObject.id);
 				}
 			// same with group/{id}/id links
 			else if(streamObject.name == 'group notice stream by id') {
@@ -2059,10 +2156,9 @@ function checkForNewQueets() {
 		if(window.loggedIn && (window.currentStreamObject.type == 'notices' || window.currentStreamObject.type == 'notifications')) {
 			var lastId = $('#feed-body').children('.stream-item').not('.temp-post').not('.posted-from-form').attr('data-quitter-id-in-stream');
 			var addThisStream = window.currentStreamObject.stream;
-			var timeNow = new Date().getTime();
 			getFromAPI(addThisStream + qOrAmp(window.currentStreamObject.stream) + 'since_id=' + lastId,function(data){
+				$('body').removeClass('loading-newer');
 				if(data) {
-					$('body').removeClass('loading-newer');
 					if(addThisStream == window.currentStreamObject.stream) {
 						addToFeed(data, false, 'hidden');
 
@@ -2081,7 +2177,6 @@ function checkForNewQueets() {
 			}
 		}
 	}
-
 
 /* ·
    ·

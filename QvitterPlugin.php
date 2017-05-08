@@ -87,6 +87,7 @@ class QvitterPlugin extends Plugin {
 		// URL SHORTENER
 		$settings['urlshortenerapiurl'] = 'http://qttr.at/yourls-api.php';
 		$settings['urlshortenersignature'] = 'b6afeec983';
+        $settings['urlshortenerformat'] = 'jsonp'; // if you're using shortener.php you can set this to 'json', which enables you to use YOURLS versions below 1.5.1
 
 		// CUSTOM TERMS OF USE
 		$settings['customtermsofuse'] = false;
@@ -159,6 +160,10 @@ class QvitterPlugin extends Plugin {
 	// route/reroute urls
     public function onRouterInitialized($m)
     {
+
+        $m->connect('api/qvitter/statuses/user_timeline.:format',
+                    array('action' => 'ApiQvitterTimelineUser',
+                          'format' => '(xml|json|rss|atom|as)'));
 		$m->connect(':nickname/mutes',
 					array('action' => 'qvitter',
 						  'nickname' => Nickname::INPUT_FMT));
@@ -370,6 +375,10 @@ class QvitterPlugin extends Plugin {
 									array('action' => 'shownotice'),
 									array('notice' => '[0-9]+'),
 									'qvitter');
+			URLMapperOverwrite::overwrite_variable($m, 'user/:id',
+									array('action' => 'userbyid'),
+									array('id' => '[0-9]+'),
+									'qvitter');
 			URLMapperOverwrite::overwrite_variable($m, 'conversation/:id',
 									array('action' => 'conversation'),
 									array('id' => '[0-9]+'),
@@ -396,6 +405,7 @@ class QvitterPlugin extends Plugin {
 		case 'api/favorites.json':
 		case 'api/statuses/friends_timeline.json':
 		case 'api/statuses/user_timeline.json':
+        case 'api/qvitter/statuses/user_timeline.json':
 
 			// add logged in user's user array
 			if (common_logged_in() && !isset($_GET['screen_name']) && !isset($_GET['id'])) {
@@ -408,13 +418,17 @@ class QvitterPlugin extends Plugin {
 
                 if(isset($_GET['screen_name'])) {
                     $user = User::getKV('nickname', $_GET['screen_name']);
+                    if($user instanceof User) {
+                        $profile = $user->getProfile();
+                        }
                     }
                 elseif(isset($_GET['id'])) {
+                    $profile = Profile::getKV('id', $_GET['id']);
                     $user = User::getKV('id', $_GET['id']);
                     }
 
-                if($user instanceof User) {
-					header('Qvitter-User-Array: '.json_encode($this->qvitterTwitterUserArray($user->getProfile())));
+                if(isset($profile) && $profile instanceof Profile) {
+					header('Qvitter-User-Array: '.json_encode($this->qvitterTwitterUserArray($profile)));
 					}
 				}
 			break;
@@ -618,6 +632,7 @@ class QvitterPlugin extends Plugin {
 
                     // this applies to older versions of gnu social, i think
 					} catch (Exception $e) {
+                        $twitter_status['attachment_error'] = array('code'=>$e->getCode(),'message'=>$e->getMessage(),'file'=>$e->getFile(),'line'=>$e->getLine(),'trace'=>$e->getTraceAsString());
 						$thumb = File_thumbnail::getKV('file_id', $attachment->id);
 						if ($thumb instanceof File_thumbnail) {
                             $thumb_url = $thumb->getUrl();

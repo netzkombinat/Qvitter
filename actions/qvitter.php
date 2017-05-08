@@ -45,6 +45,20 @@ class QvitterAction extends ApiAction
     {
         parent::prepare($args);
 
+        // redirect user/:id for local users to their nickname url
+		if(substr($_SERVER['REQUEST_URI'],0,6) == '/user/') {
+			$user_id = substr($_SERVER['REQUEST_URI'],6);
+			try {
+                $user = User::getKV('id', $user_id);
+                if($user instanceof User) {
+                    $nickname = $user->nickname;
+                    common_redirect(common_local_url('showstream',array('nickname'=>$nickname)), 303);
+                    }
+            } catch (Exception $e) {
+                //
+            }
+        }
+
         $user = common_current_user();
 
         return true;
@@ -84,7 +98,15 @@ class QvitterAction extends ApiAction
 		$siterootdomain = common_config('site','server');
 		$qvitterpath = Plugin::staticPath('Qvitter', '');
 		$apiroot = common_path('api/', StatusNet::isHTTPS());
-		$attachmentroot = common_path('attachment/', StatusNet::isHTTPS());
+
+		$attachmentconfig=common_config('attachments');
+		if(StatusNet::isHTTPS() && $attachmentconfig['sslserver']){
+			$attachmentroot ='https://'.$attachmentconfig['sslserver'].$attachmentconfig['path'];
+		} elseif(!StatusNet::isHTTPS() && $attachmentconfig['server']) {
+			$attachmentroot ='http://'.$attachmentconfig['server'].$attachmentconfig['path'];
+		} else {
+			$attachmentroot = common_path('attachment/', StatusNet::isHTTPS());
+		}
 		$instanceurl = common_path('', StatusNet::isHTTPS());
         $favicon_path = QvitterPlugin::settings("favicon_path");
 
@@ -159,15 +181,19 @@ class QvitterAction extends ApiAction
 							print '				<link href="'.$instanceurl.$nickname.'/microsummary" rel="microsummary">'."\n";
 
                             // rel="me" for the IndieWeb audience
-                            $relMes = array(
-                                ['href' => $user->getProfile()->getHomepage(),
-                                 'text' => _('Homepage'),
-                                 'image' => null],
-                            );
-                            Event::handle('OtherAccountProfiles', array($user->getProfile(), &$relMes));
-							foreach ($relMes as $relMe) {
-                                print '				<link href="'.htmlspecialchars($relMe['href']).'" title="'.$relMe['text'].'" rel="me" />'."\n";
-                            }
+                            // (no indieweb for users of older gnu social versions)
+                            if(method_exists('Profile','getHomepage')) {
+                                $user_homepage = $user->getProfile()->getHomepage();
+                                $relMes = array(
+                                    ['href' => $user->getProfile()->getHomepage(),
+                                     'text' => _('Homepage'),
+                                     'image' => null],
+                                    );
+                                Event::handle('OtherAccountProfiles', array($user->getProfile(), &$relMes));
+    							foreach ($relMes as $relMe) {
+                                    print '				<link href="'.htmlspecialchars($relMe['href']).'" title="'.$relMe['text'].'" rel="me" />'."\n";
+                                    }
+                                }
 
 							// maybe openid
 							if (array_key_exists('OpenID', StatusNet::getActivePlugins())) {
@@ -354,6 +380,7 @@ class QvitterAction extends ApiAction
 					window.customWelcomeText = <?php print json_encode(QvitterPlugin::settings("customwelcometext")); ?>;
 					window.urlShortenerAPIURL = '<?php print QvitterPlugin::settings("urlshortenerapiurl"); ?>';
 					window.urlShortenerSignature = '<?php print QvitterPlugin::settings("urlshortenersignature"); ?>';
+                    window.urlshortenerFormat = '<?php print QvitterPlugin::settings("urlshortenerformat"); ?>';
 					window.commonSessionToken = '<?php print common_session_token(); ?>';
 					window.siteMaxThumbnailSize = <?php print common_config('thumbnail', 'maxsize'); ?>;
 					window.siteAttachmentURLBase = '<?php print $attachmentroot; ?>';
@@ -804,7 +831,8 @@ class QvitterAction extends ApiAction
 						}
 					#user-footer-inner,
 					.inline-reply-queetbox,
-					#popup-faq #faq-container p.indent {
+					#popup-faq #faq-container p.indent,
+                    #find-someone {
 						background-color:/*LIGHTERBACKGROUNDCOLORSTART*/rgb(205,230,239)/*LIGHTERBACKGROUNDCOLOREND*/;
 						}
 					#user-footer-inner,
@@ -818,7 +846,8 @@ class QvitterAction extends ApiAction
                     .quoted-notice:hover,
                     .oembed-item:hover,
                     .stream-item:hover:not(.expanded) .quoted-notice:hover,
-                    .stream-item:hover:not(.expanded) .oembed-item:hover {
+                    .stream-item:hover:not(.expanded) .oembed-item:hover,
+                    #find-someone input:focus {
 						border-color:/*LIGHTERBORDERCOLORSTART*/rgb(155,206,224)/*LIGHTERBORDERCOLOREND*/;
 						}
 					span.inline-reply-caret .caret-inner {
